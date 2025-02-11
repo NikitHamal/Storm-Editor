@@ -1,27 +1,6 @@
 // Import HuggingFace Inference
 const { HfInference } = window;
 
-// Initialize Monaco Editor
-require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' } });
-
-let editor;
-require(['vs/editor/editor.main'], function () {
-    editor = monaco.editor.create(document.getElementById('monaco-editor'), {
-        value: '// Start coding here...',
-        language: 'javascript',
-        theme: 'vs-dark',
-        automaticLayout: true,
-        minimap: {
-            enabled: true
-        }
-    });
-
-    // Set up event listener for editor content changes
-    editor.onDidChangeModelContent(() => {
-        // You can add functionality here to track changes
-    });
-});
-
 // Chat functionality
 const chatMessages = document.getElementById('chat-messages');
 const chatInput = document.getElementById('chat-input');
@@ -56,7 +35,7 @@ function loadApiKeys() {
 function saveApiKey() {
     const selectedModel = modelSelector.value;
     const apiKey = apiKeyInput.value.trim();
-    
+
     if (apiKey) {
         apiKeys[selectedModel] = apiKey;
         localStorage.setItem('storm_editor_api_keys', JSON.stringify(apiKeys));
@@ -71,7 +50,7 @@ function updateApiKeyPlaceholder() {
 }
 
 // Model-specific API calls
-async function sendMessageGemini(userMessage, editorContent) {
+async function sendMessageGemini(userMessage) {
     const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=${apiKeys.gemini}`, {
         method: 'POST',
         headers: {
@@ -80,13 +59,7 @@ async function sendMessageGemini(userMessage, editorContent) {
         body: JSON.stringify({
             contents: [{
                 parts: [{
-                    text: `You are a helpful AI coding assistant. Please help with the following:
-                    
-Current code in editor:
-${editorContent}
-
-User question:
-${userMessage}`
+                    text: `You are a helpful AI coding assistant. Please help with the following:\n\nUser question:\n${userMessage}`
                 }]
             }]
         })
@@ -100,7 +73,7 @@ ${userMessage}`
     return data.candidates[0].content.parts[0].text;
 }
 
-async function sendMessageDeepSeek(userMessage, editorContent) {
+async function sendMessageDeepSeek(userMessage) {
     // Validate API key format
     if (!apiKeys.deepseek.startsWith('sk-or-')) {
         throw new Error('Invalid OpenRouter API key format. Key should start with "sk-or-"');
@@ -108,7 +81,7 @@ async function sendMessageDeepSeek(userMessage, editorContent) {
 
     try {
         console.log('Preparing request to OpenRouter API...');
-        
+
         const headers = {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiKeys.deepseek}`
@@ -124,12 +97,7 @@ async function sendMessageDeepSeek(userMessage, editorContent) {
                 },
                 {
                     role: 'user',
-                    content: `Current code in editor:
-\`\`\`
-${editorContent}
-\`\`\`
-
-User question: ${userMessage}`
+                    content: `User question: ${userMessage}`
                 }
             ]
         };
@@ -164,45 +132,16 @@ User question: ${userMessage}`
     }
 }
 
-// Add Monaco Editor error handling
-let monacoEditorLoaded = false;
-let monacoLoadingPromise = null;
-let lastEditorContent = ''; // Cache for editor content
-
-// Update getEditorContent to handle cancellation
-function getEditorContent() {
-    try {
-        if (!window.editor) {
-            console.warn('Editor not initialized, returning cached content');
-            return lastEditorContent;
-        }
-        lastEditorContent = window.editor.getValue();
-        return lastEditorContent;
-    } catch (error) {
-        console.warn('Error getting editor content:', error);
-        return lastEditorContent;
-    }
-}
-
-// Update Phi message handling with better error handling and retries
-async function sendMessagePhi(userMessage, editorContent) {
+async function sendMessagePhi(userMessage) {
     const maxRetries = 3;
     let attempt = 0;
 
     while (attempt < maxRetries) {
         try {
-            console.log(`Preparing request to Phi API (attempt ${attempt + 1}/${maxRetries})...`);
+            console.log(`Preparing request to Phi API (attempt `${{attempt + 1}/}$`{maxRetries})...`);
 
-            // Ensure we have content to send
-            const safeEditorContent = editorContent || lastEditorContent || '// No code available';
-            
             // Construct the message with proper formatting and length limit
             const message = `You are an expert coding assistant. Help users write, understand, and debug code.
-
-Current code:
-\`\`\`
-${safeEditorContent}
-\`\`\`
 
 User question: ${userMessage}
 
@@ -215,8 +154,7 @@ Please provide a clear and detailed response.`.trim();
             console.log('Making request to Phi API with:', {
                 attempt: attempt + 1,
                 messageLength: message.length,
-                userQuestion: userMessage,
-                hasCode: Boolean(safeEditorContent)
+                userQuestion: userMessage
             });
 
             const response = await fetch(apiUrl, {
@@ -259,7 +197,7 @@ Please provide a clear and detailed response.`.trim();
             }
 
             const data = await response.json();
-            
+
             if (!data || (!data.response && !data.message)) {
                 throw new Error('Invalid response format from Phi API');
             }
@@ -269,12 +207,12 @@ Please provide a clear and detailed response.`.trim();
 
         } catch (error) {
             console.error('Request error:', error);
-            
+
             // On last attempt, throw the error
             if (attempt === maxRetries - 1) {
                 throw error;
             }
-            
+
             attempt++;
             const delay = Math.min(1000 * Math.pow(2, attempt), 10000);
             console.log(`Retrying after ${delay}ms...`);
@@ -285,55 +223,22 @@ Please provide a clear and detailed response.`.trim();
     throw new Error('Maximum retry attempts reached');
 }
 
-// Update Monaco Editor initialization
-function initializeMonacoEditor() {
-    if (monacoLoadingPromise) {
-        return monacoLoadingPromise;
-    }
-
-    monacoLoadingPromise = new Promise((resolve, reject) => {
-        try {
-            // ... existing Monaco initialization code ...
-
-            // Add error handling for editor operations
-            window.editor.onDidChangeModelContent(() => {
-                try {
-                    lastEditorContent = window.editor.getValue();
-                } catch (error) {
-                    console.warn('Error caching editor content:', error);
-                }
-            });
-
-        } catch (error) {
-            console.error('Monaco Editor initialization error:', error);
-            reject(error);
-        }
-    });
-
-    return monacoLoadingPromise;
-}
-
 // Phi-3 conversation history
 const phi3ConversationHistory = [];
 const MAX_PHI3_CONVERSATION_HISTORY = 10;
 
-async function sendMessagePhi3(userMessage, editorContent) {
+async function sendMessagePhi3(userMessage) {
     try {
         console.log('Preparing request to OpenRouter Phi-3 API...');
-        
+
         // Manage conversation history
         const messagePayload = {
             role: 'user',
-            content: `Current code in editor:
-\`\`\`
-${editorContent}
-\`\`\`
-
-User question: ${userMessage}`
+            content: `User question: ${userMessage}`
         };
-        
+
         phi3ConversationHistory.push(messagePayload);
-        
+
         // Truncate conversation history if it exceeds max length
         if (phi3ConversationHistory.length > MAX_PHI3_CONVERSATION_HISTORY) {
             phi3ConversationHistory.shift();
@@ -390,7 +295,7 @@ User question: ${userMessage}`
         }
 
         const aiResponse = data.choices[0].message.content;
-        
+
         // Add AI response to conversation history
         phi3ConversationHistory.push({
             role: 'assistant',
@@ -408,23 +313,18 @@ User question: ${userMessage}`
 const kimiConversationHistory = [];
 const MAX_CONVERSATION_HISTORY = 10;
 
-async function sendMessageKimi(userMessage, editorContent) {
+async function sendMessageKimi(userMessage) {
     try {
         console.log('Preparing request to Moonshot Kimi API...');
-        
+
         // Manage conversation history
         const messagePayload = {
             role: 'user',
-            content: `Current code in editor:
-\`\`\`
-${editorContent}
-\`\`\`
-
-User question: ${userMessage}`
+            content: `User question: ${userMessage}`
         };
-        
+
         kimiConversationHistory.push(messagePayload);
-        
+
         // Truncate conversation history if it exceeds max length
         if (kimiConversationHistory.length > MAX_CONVERSATION_HISTORY) {
             kimiConversationHistory.shift();
@@ -480,7 +380,7 @@ User question: ${userMessage}`
         }
 
         const aiResponse = data.choices[0].message.content;
-        
+
         // Add AI response to conversation history
         kimiConversationHistory.push({
             role: 'assistant',
@@ -498,23 +398,18 @@ User question: ${userMessage}`
 const paxsenixClaudeConversationHistory = [];
 const MAX_PAXSENIX_CLAUDE_CONVERSATION_HISTORY = 10;
 
-async function sendMessagePaxsenixClaude(userMessage, editorContent) {
+async function sendMessagePaxsenixClaude(userMessage) {
     try {
         console.log('Preparing request to Paxsenix Claude Sonnet API...');
-        
+
         // Manage conversation history
         const messagePayload = {
             role: 'user',
-            content: `Current code in editor:
-\`\`\`
-${editorContent}
-\`\`\`
-
-User question: ${userMessage}`
+            content: `User question: ${userMessage}`
         };
-        
+
         paxsenixClaudeConversationHistory.push(messagePayload);
-        
+
         // Truncate conversation history if it exceeds max length
         if (paxsenixClaudeConversationHistory.length > MAX_PAXSENIX_CLAUDE_CONVERSATION_HISTORY) {
             paxsenixClaudeConversationHistory.shift();
@@ -549,7 +444,7 @@ User question: ${userMessage}`
         console.log('Raw response text:', responseText);
 
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}, response: ${responseText}`);
+            throw new Error(`HTTP error! status: `${{response.status}, response:}$`{responseText}`);
         }
 
         let data;
@@ -588,7 +483,7 @@ User question: ${userMessage}`
         return aiResponse;
     } catch (error) {
         console.error('Full error details:', error);
-        
+
         // Enhanced error logging
         if (error instanceof Error) {
             console.error('Error name:', error.name);
@@ -597,23 +492,23 @@ User question: ${userMessage}`
                 console.error('Error stack:', error.stack);
             }
         }
-        
+
         throw error;
     }
 }
 
 // Add Qwen message handling function
-async function sendMessageQwen(userMessage, editorContent) {
+async function sendMessageQwen(userMessage) {
     const key = apiKeys.qwen;
     console.log('Checking Qwen API key...', key ? 'Key exists' : 'No key found');
-    
+
     if (!key) {
         throw new Error('Qwen API key not set. Please add your OpenRouter API key in the settings.');
     }
 
     try {
         console.log('Preparing request to Qwen API...');
-        
+
         const cleanKey = key.trim().replace(/^Bearer\s+/i, '');
         if (!cleanKey.startsWith('sk-or-')) {
             throw new Error('Invalid OpenRouter API key format. Key should start with "sk-or-"');
@@ -638,12 +533,7 @@ async function sendMessageQwen(userMessage, editorContent) {
             content: [
                 {
                     type: "text",
-                    text: `Current code in editor:
-\`\`\`
-${editorContent}
-\`\`\`
-
-User question: ${userMessage}`
+                    text: `User question: ${userMessage}`
                 }
             ]
         });
@@ -685,7 +575,7 @@ User question: ${userMessage}`
 // Update model selector to include Kimi, Phi-3, and Paxsenix Claude Sonnet
 function updateModelSelector() {
     const modelSelector = document.getElementById('model-selector');
-    
+
     // Add Kimi option if not already added
     if (!Array.from(modelSelector.options).some(option => option.value === 'kimi')) {
         const kimiOption = document.createElement('option');
@@ -717,25 +607,25 @@ async function sendMessageToAI(message) {
     try {
         switch (selectedModel) {
             case 'phi':
-                response = await sendMessagePhi(message, editor.getValue());
+                response = await sendMessagePhi(message);
                 break;
             case 'qwen':
-                response = await sendMessageQwen(message, editor.getValue());
+                response = await sendMessageQwen(message);
                 break;
             case 'gemini':
-                response = await sendMessageGemini(message, editor.getValue());
+                response = await sendMessageGemini(message);
                 break;
             case 'deepseek':
-                response = await sendMessageDeepSeek(message, editor.getValue());
+                response = await sendMessageDeepSeek(message);
                 break;
             case 'kimi':
-                response = await sendMessageKimi(message, editor.getValue());
+                response = await sendMessageKimi(message);
                 break;
             case 'phi3':
-                response = await sendMessagePhi3(message, editor.getValue());
+                response = await sendMessagePhi3(message);
                 break;
             case 'paxsenixClaude':
-                response = await sendMessagePaxsenixClaude(message, editor.getValue());
+                response = await sendMessagePaxsenixClaude(message);
                 break;
             default:
                 throw new Error(`Model ${selectedModel} is not yet implemented`);
@@ -750,7 +640,7 @@ async function sendMessageToAI(message) {
 function appendMessage(message, sender) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `chat-message ${sender}-message`;
-    
+
     if (sender === 'system') {
         messageDiv.classList.add('system-message');
         messageDiv.textContent = message;
@@ -771,15 +661,9 @@ function appendMessage(message, sender) {
                                 </svg>
                                 Copy
                             </button>
-                            <button class="code-action-btn implement-btn" title="Implement in editor">
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor">
-                                    <path d="M4.5 3l4 4-4 4L3 9.5 5.5 7 3 4.5 4.5 3zm4 7h5v1h-5v-1z"/>
-                                </svg>
-                                Implement
-                            </button>
                         </div>
                     </div>
-                    <pre><code class="language-${displayLang}">${escapeHtml(code.trim())}</code></pre>
+                    <pre><code class="language-`${{displayLang}">}$`{escapeHtml(code.trim())}</code></pre>
                 </div>`;
             })
             // Inline code
@@ -805,7 +689,7 @@ function appendMessage(message, sender) {
         // Add event listeners for code block buttons
         messageDiv.querySelectorAll('.code-block').forEach(block => {
             const code = block.querySelector('code').textContent;
-            
+
             // Copy button
             block.querySelector('.copy-btn').addEventListener('click', async () => {
                 try {
@@ -821,12 +705,6 @@ function appendMessage(message, sender) {
                 } catch (err) {
                     console.error('Failed to copy:', err);
                 }
-            });
-
-            // Implement button
-            block.querySelector('.implement-btn').addEventListener('click', () => {
-                editor.setValue(code);
-                editor.focus();
             });
         });
     }
@@ -941,7 +819,7 @@ async function generateImageWithFlux(prompt, options = {}) {
         console.log('Raw response text:', responseText);
 
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}, response: ${responseText}`);
+            throw new Error(`HTTP error! status: `${{response.status}, response:}$`{responseText}`);
         }
 
         let data;
@@ -974,8 +852,8 @@ async function generateImageWithFlux(prompt, options = {}) {
                 try {
                     const imageResponse = await fetch(url);
                     const blob = await imageResponse.blob();
-                    const fileName = `flux_image_${Date.now()}_${index}.png`;
-                    
+                    const fileName = `flux_image_`${{Date.now()}_}$`{index}.png`;
+
                     // Save to local filesystem (if supported)
                     if (window.showSaveFilePicker) {
                         const handle = await window.showSaveFilePicker({
