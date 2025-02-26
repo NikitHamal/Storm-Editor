@@ -234,36 +234,11 @@ function loadApiKeys() {
         }
         
         if (openrouterModel) {
-            document.getElementById('openrouter-model').value = openrouterModel;
+            const modelSelect = document.getElementById('openrouter-model');
+            if (modelSelect && modelSelect.querySelector(`option[value="${openrouterModel}"]`)) {
+                modelSelect.value = openrouterModel;
+            }
         }
-        
-        // Add event listeners for API key toggles
-        const toggleBtns = document.querySelectorAll('.toggle-visibility-btn');
-        toggleBtns.forEach(btn => {
-            btn.addEventListener('click', () => {
-                const inputId = btn.dataset.for;
-                const input = document.getElementById(inputId);
-                
-                if (input.type === 'password') {
-                    input.type = 'text';
-                    const icon = btn.querySelector('i');
-                    if (icon) {
-                        icon.className = 'fas fa-eye-slash';
-                    }
-                } else if (input) {
-                    input.type = 'password';
-                    const icon = btn.querySelector('i');
-                    if (icon) {
-                        icon.className = 'fas fa-eye';
-                    }
-                }
-            });
-        });
-        
-        // Add event listener for saving API keys
-        const saveKeysBtn = document.getElementById('save-api-keys');
-        saveKeysBtn.addEventListener('click', saveApiKeys);
-        
     } catch (error) {
         console.error('Error loading API keys:', error);
     }
@@ -279,17 +254,11 @@ function saveApiKeys() {
         if (geminiKey) {
             localStorage.setItem('apiKey_gemini', geminiKey);
             apiKeys.gemini = geminiKey;
-        } else {
-            localStorage.removeItem('apiKey_gemini');
-            apiKeys.gemini = '';
         }
         
         if (openrouterKey) {
             localStorage.setItem('apiKey_openrouter', openrouterKey);
             apiKeys.openrouter = openrouterKey;
-        } else {
-            localStorage.removeItem('apiKey_openrouter');
-            apiKeys.openrouter = '';
         }
         
         if (openrouterModel) {
@@ -297,7 +266,6 @@ function saveApiKeys() {
         }
         
         appendMessage('API keys saved successfully', 'system');
-        updateModelSelector();
         
     } catch (error) {
         console.error('Error saving API keys:', error);
@@ -320,7 +288,8 @@ function checkApiKey(model) {
     const keyName = keyMapping[model];
     if (!keyName) return true; // If no mapping, assume no key needed
     
-    if (!apiKeys[keyName]) {
+    const key = apiKeys[keyName];
+    if (!key || key.trim() === '') {
         appendMessage(`Please set your ${model} API key in the settings panel.`, 'system');
         document.getElementById('settings-tab').click();
         return false;
@@ -463,57 +432,175 @@ const geminiConversationHistory = [];
 const MAX_GEMINI_CONVERSATION_HISTORY = 20;
 
 // Model-specific API calls
-async function sendMessageGemini(userMessage, editorContent) {
-    if (!checkApiKey('gemini')) {
-        throw new Error('Gemini API key not set');
-    }
+async function sendMessageToAI(message) {
+    const selectedModel = modelSelector.value;
+    const editorContent = editor.getValue().trim();
+    let response;
 
-    // Manage conversation history
-    const userMessagePayload = {
-        role: 'user',
-        parts: [{
-            text: `Current code in editor:
+    try {
+        // Get chat context
+        const chat = chatHistory.find(c => c.id === currentChatId);
+        const chatContext = chat ? chat.messages.map(m => ({
+            role: m.sender === 'user' ? 'user' : 'assistant',
+            content: m.content
+        })) : [];
+
+        // Build message with context
+        const messageWithContext = editorContent ? 
+            `Current code in editor:
 \`\`\`
 ${editorContent}
 \`\`\`
 
-User question: ${userMessage}`
-        }]
-    };
-    
-    // Add context from previous messages if available
-    let contents = [];
-    
-    // First add system message
-    contents.push({
-        role: 'system',
-        parts: [{
-            text: 'You are a helpful AI coding assistant. Provide clear, concise help with code issues and programming questions.'
-        }]
-    });
-    
-    // Then add conversation history
-    if (geminiConversationHistory.length > 0) {
-        contents = contents.concat(geminiConversationHistory);
+User question: ${message}` : message;
+
+        switch (selectedModel) {
+            case 'gemini':
+                response = await sendMessageGemini(messageWithContext, editorContent, chatContext);
+                break;
+            case 'openrouter':
+                response = await sendMessageOpenRouter(messageWithContext, editorContent, chatContext);
+                break;
+            case 'paxsenixClaude':
+                response = await sendMessagePaxsenixClaude(messageWithContext, editorContent, chatContext);
+                break;
+            case 'paxsenixGPT4O':
+                response = await sendMessagePaxsenixGPT4O(messageWithContext, editorContent, chatContext);
+                break;
+            default:
+                throw new Error(`Model ${selectedModel} is not supported. Please select a different model.`);
+        }
+
+        // Handle response parsing
+        if (typeof response === 'string' && response.trim().startsWith('{')) {
+            try {
+                const parsedResponse = JSON.parse(response);
+                if (parsedResponse.choices && parsedResponse.choices[0]) {
+                    const choice = parsedResponse.choices[0];
+                    if (choice.message) {
+                        if (choice.message.reasoning) {
+                            appendMessage(`AI's Reasoning: ${choice.message.reasoning}`, 'system');
+                        }
+                        return choice.message.content || '';
+                    }
+                }
+                if (parsedResponse.message) {
+                    return parsedResponse.message;
+                }
+            } catch (e) {
+                console.warn('Failed to parse response as JSON:', e);
+            }
+        }
+
+        return response;
+    } catch (error) {
+        console.error(`Error with ${selectedModel} API:`, error);
+        throw error;
     }
-    
-    // Finally add the current user message
-    contents.push(userMessagePayload);
-    
+}
+
+async function sendMessageOpenRouter(userMessage, editorContent, chatContext = []) {
+    if (!checkApiKey('openrouter')) {
+        throw new Error('OpenRouter API key not set');
+    }
+
+    try {
+        const selectedModel = document.getElementById('openrouter-model').value;
+        const headers = {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKeys.openrouter}`,
+            'HTTP-Referer': window.location.origin,
+            'X-Title': 'Storm Editor'
+        };
+
+        const messages = [
+            {
+                role: 'system',
+                content: 'You are an expert coding assistant. Help users write, understand, and debug code with clear explanations and best practices.'
+            },
+            ...chatContext
+        ];
+
+        // Add current message
+        messages.push({
+            role: 'user',
+            content: userMessage
+        });
+
+        const requestBody = {
+            model: selectedModel,
+            messages: messages,
+            temperature: 0.3,
+            max_tokens: 4000
+        };
+
+        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('API Error:', errorText);
+            throw new Error(response.status === 401 ? 'Invalid API key' : 
+                          response.status === 429 ? 'Rate limit exceeded' : 
+                          `API request failed: ${errorText}`);
+        }
+
+        const data = await response.json();
+        if (!data.choices?.[0]?.message) throw new Error('Unexpected API response format');
+
+        const choice = data.choices[0];
+        if (choice.message.reasoning) {
+            appendMessage(`AI's Reasoning: ${choice.message.reasoning}`, 'system');
+        }
+        return choice.message.content || '';
+    } catch (error) {
+        console.error('Full error details:', error);
+        throw error;
+    }
+}
+
+async function sendMessageGemini(userMessage, editorContent, chatContext = []) {
+    if (!checkApiKey('gemini')) {
+        throw new Error('Gemini API key not set');
+    }
+
+    let contents = [
+        {
+            role: 'system',
+            parts: [{
+                text: 'You are a helpful AI coding assistant. Provide clear, concise help with code issues and programming questions.'
+            }]
+        }
+    ];
+
+    // Add chat context
+    chatContext.forEach(msg => {
+        contents.push({
+            role: msg.role === 'user' ? 'user' : 'model',
+            parts: [{ text: msg.content }]
+        });
+    });
+
+    // Add current message
+    contents.push({
+        role: 'user',
+        parts: [{ text: userMessage }]
+    });
+
     // Keep history within limits
     if (contents.length > MAX_GEMINI_CONVERSATION_HISTORY) {
-        // Keep system message (index 0) and remove older messages
         contents = [
-            contents[0], 
+            contents[0],
             ...contents.slice(contents.length - MAX_GEMINI_CONVERSATION_HISTORY + 1)
         ];
     }
 
     const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=${apiKeys.gemini}`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contents })
     });
 
@@ -522,166 +609,14 @@ User question: ${userMessage}`
     }
 
     const data = await response.json();
-    const aiResponse = data.candidates[0].content.parts[0].text;
-    
-    // Add user message and AI response to conversation history
-    geminiConversationHistory.push(userMessagePayload);
-    geminiConversationHistory.push({
-        role: 'model',
-        parts: [{ text: aiResponse }]
-    });
-    
-    // Truncate history if it exceeds max length
-    while (geminiConversationHistory.length > MAX_GEMINI_CONVERSATION_HISTORY) {
-        geminiConversationHistory.shift();
-    }
-    
-    return aiResponse;
-}
-
-// OpenRouter API integration
-async function sendMessageOpenRouter(userMessage, editorContent) {
-    if (!checkApiKey('openrouter')) {
-        throw new Error('OpenRouter API key not set');
-    }
-
-    try {
-        console.log('Preparing request to OpenRouter API...');
-        
-        // OpenRouter conversation history
-        const openRouterConversationHistory = [];
-        const MAX_OPENROUTER_CONVERSATION_HISTORY = 15;
-        
-        // Get the selected model from the dropdown
-        const selectedModel = document.getElementById('openrouter-model').value;
-        console.log('Using OpenRouter model:', selectedModel);
-
-        // Check if the model URL starts with @ and remove it
-        const modelId = selectedModel.startsWith('@') ? selectedModel.substring(1) : selectedModel;
-
-        const headers = {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKeys.openrouter}`,
-            'HTTP-Referer': window.location.href, // Required by OpenRouter
-            'X-Title': 'Storm Editor',
-            'User-Agent': 'Storm Editor/1.0'
-        };
-        console.log('Request headers:', { ...headers, Authorization: '[REDACTED]' });
-
-        // Get current chat to build conversation history
-        let messages = [];
-        
-        if (currentChatId) {
-            const chat = chatHistory.find(c => c.id === currentChatId);
-            if (chat && chat.messages.length > 0) {
-                // Add previous messages as context, up to the limit
-                const previousMessages = chat.messages.slice(-MAX_OPENROUTER_CONVERSATION_HISTORY);
-                
-                for (const msg of previousMessages) {
-                    messages.push({
-                        role: msg.sender === 'user' ? 'user' : 'assistant',
-                        content: msg.content
-                    });
-                }
-            }
-        }
-        
-        // Add system message at the beginning
-        messages.unshift({
-                    role: 'system',
-            content: 'You are an expert coding assistant. Help users write, understand, and debug code with clear explanations and best practices. You have access to the current code in the editor and can provide specific guidance based on it.'
-        });
-        
-        // Add the current user message
-        messages.push({
-                    role: 'user',
-                    content: `Current code in editor:
-\`\`\`
-${editorContent}
-\`\`\`
-
-User question: ${userMessage}`
-        });
-
-        const requestBody = {
-            model: modelId, // Use the selected model from the dropdown
-            messages: messages,
-            temperature: 0.3,
-            max_tokens: 4000,  // Reasonable limit for response length
-            top_p: 0.9,        // Standard setting for creative but focused responses
-        };
-
-        console.log('Request body:', JSON.stringify(requestBody, null, 2));
-
-        // Use the standard OpenRouter API endpoint
-        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(requestBody)
-        });
-
-        console.log('Response status:', response.status);
-        const responseText = await response.text();
-        console.log('Raw response text length:', responseText.length);
-        console.log('Raw response text preview:', responseText.substring(0, 500) + '...');
-
-        if (!response.ok) {
-            // Handle specific error codes
-            if (response.status === 429) {
-                throw new Error('Rate limit exceeded. Please try again later.');
-            } else if (response.status === 401) {
-                throw new Error('Invalid API key. Please check your OpenRouter API key.');
-            } else if (response.status === 404) {
-                throw new Error(`Model not found: ${selectedModel}. Please check the model ID.`);
-            }
-            throw new Error(`HTTP error! status: ${response.status}, response: ${responseText}`);
-        }
-
-        let data;
-        try {
-            data = JSON.parse(responseText);
-        } catch (parseError) {
-            console.error('Failed to parse JSON response:', parseError);
-            console.error('Unparseable response text:', responseText);
-            
-            // Try to extract content using regex if JSON parsing fails
-            const contentMatch = responseText.match(/"content"\s*:\s*"((?:\\"|[^"])*?)"/);
-            if (contentMatch && contentMatch[1]) {
-                return contentMatch[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\');
-            }
-            
-            throw new Error('Could not parse API response');
-        }
-
-        console.log('Parsed response data:', JSON.stringify(data, null, 2));
-
-        // Extract response content
-        if (data.choices && data.choices[0] && data.choices[0].message) {
-            return data.choices[0].message.content;
-        } else if (data.message) {
-            return data.message;
-        } else if (data.content) {
-            return data.content;
-        } else {
-            throw new Error('Unexpected response format from OpenRouter API');
-        }
-    } catch (error) {
-        console.error('Full error details:', error);
-        
-        // Check for network errors
-        if (error.name === 'TypeError' && error.message === 'Failed to fetch') {
-            throw new Error('Network error: Unable to connect to OpenRouter API. Please check your internet connection.');
-        }
-        
-        throw error;
-    }
+    return data.candidates[0].content.parts[0].text;
 }
 
 // Paxsenix Claude Sonnet conversation history
 const paxsenixClaudeConversationHistory = [];
 const MAX_PAXSENIX_CLAUDE_CONVERSATION_HISTORY = 10;
 
-async function sendMessagePaxsenixClaude(userMessage, editorContent) {
+async function sendMessagePaxsenixClaude(userMessage, editorContent, chatContext = []) {
     try {
         console.log('Preparing request to Paxsenix Claude Sonnet API...');
         
@@ -787,7 +722,7 @@ User question: ${userMessage}`
 const paxsenixGPT4OConversationHistory = [];
 const MAX_PAXSENIX_GPT4O_CONVERSATION_HISTORY = 10;
 
-async function sendMessagePaxsenixGPT4O(userMessage, editorContent) {
+async function sendMessagePaxsenixGPT4O(userMessage, editorContent, chatContext = []) {
     try {
         console.log('Preparing request to Paxsenix GPT-4O API...');
         
@@ -1023,71 +958,6 @@ function escapeHtml(unsafe) {
 // Show "AI is thinking" indicator
 function showThinking() {
     appendMessage('AI is thinking...', 'system', false);
-}
-
-async function sendMessageToAI(message) {
-    const selectedModel = modelSelector.value;
-    const editorContent = editor.getValue();
-    let response;
-
-    try {
-    switch (selectedModel) {
-        case 'gemini':
-                response = await sendMessageGemini(message, editorContent);
-            break;
-            case 'openrouter':
-                response = await sendMessageOpenRouter(message, editorContent);
-            break;
-        case 'phi':
-                // Return a helpful error message since this model is no longer available
-                throw new Error('The Phi model is no longer available. Please select a different model.');
-            break;
-        case 'paxsenixClaude':
-                response = await sendMessagePaxsenixClaude(message, editorContent);
-            break;
-        case 'paxsenixGPT4O':
-                response = await sendMessagePaxsenixGPT4O(message, editorContent);
-            break;
-        default:
-                throw new Error(`Model ${selectedModel} is not supported. Please select a different model.`);
-    }
-    
-    // Final check if response is still a JSON string containing message property
-    if (typeof response === 'string') {
-        try {
-            // Try to parse it as JSON if it looks like JSON
-            if (response.trim().startsWith('{') && response.trim().endsWith('}')) {
-                const parsedResponse = JSON.parse(response);
-                if (parsedResponse.message) {
-                    return parsedResponse.message;
-                }
-            }
-        } catch (e) {
-            // If parsing fails, just return the original response
-            console.warn('Failed to parse response as JSON in final check:', e);
-        }
-    }
-    
-    return response;
-    } catch (error) {
-        console.error(`Error with ${selectedModel} API:`, error);
-        
-        // Check if it's a 404 Not Found error
-        if (error.message && error.message.includes('404')) {
-            throw new Error(`The ${selectedModel} API endpoint is not available. Please select a different model.`);
-        }
-        
-        throw new Error(`${selectedModel} API error: ${error.message}`);
-    }
-}
-
-function showThinking() {
-    const thinkingDiv = document.createElement('div');
-    thinkingDiv.className = 'thinking';
-    thinkingDiv.textContent = 'AI is thinking...';
-    chatMessages.appendChild(thinkingDiv);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-    return thinkingDiv;
 }
 
 function appendMessage(message, sender, saveToHistory = true) {
