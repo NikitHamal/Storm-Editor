@@ -567,48 +567,36 @@ async function sendMessageGemini(userMessage, editorContent, chatContext = []) {
         throw new Error('Gemini API key not set');
     }
 
-    let contents = [
-        {
-            role: 'system',
+    // Format the content properly for Gemini
+    const contents = {
+        contents: [{
             parts: [{
-                text: 'You are a helpful AI coding assistant. Provide clear, concise help with code issues and programming questions.'
+                text: userMessage
             }]
-        }
-    ];
-
-    // Add chat context
-    chatContext.forEach(msg => {
-        contents.push({
-            role: msg.role === 'user' ? 'user' : 'model',
-            parts: [{ text: msg.content }]
-        });
-    });
-
-    // Add current message
-    contents.push({
-        role: 'user',
-        parts: [{ text: userMessage }]
-    });
+        }]
+    };
 
     // Keep history within limits
-    if (contents.length > MAX_GEMINI_CONVERSATION_HISTORY) {
-        contents = [
-            contents[0],
-            ...contents.slice(contents.length - MAX_GEMINI_CONVERSATION_HISTORY + 1)
-        ];
+    if (contents.contents.length > MAX_GEMINI_CONVERSATION_HISTORY) {
+        contents.contents = contents.contents.slice(-MAX_GEMINI_CONVERSATION_HISTORY);
     }
 
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=${apiKeys.gemini}`, {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKeys.gemini}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents })
+        body: JSON.stringify(contents)
     });
 
     if (!response.ok) {
-        throw new Error(`Gemini API request failed with status ${response.status}`);
+        const error = await response.json();
+        throw new Error(`Gemini API request failed: ${error.error?.message || response.status}`);
     }
 
     const data = await response.json();
+    if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
+        throw new Error('Unexpected response format from Gemini API');
+    }
+    
     return data.candidates[0].content.parts[0].text;
 }
 
