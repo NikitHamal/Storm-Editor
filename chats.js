@@ -1,3 +1,35 @@
+// Update model selector to include all available models
+function updateModelSelector() {
+    const modelSelector = document.getElementById('model-selector');
+    
+    // Clear existing options
+    modelSelector.innerHTML = '';
+
+    // Add model options
+    const models = [
+        { value: 'gemini', text: 'Gemini 2.0 Flash' },
+        { value: 'openrouter', text: 'OpenRouter API' },
+        { value: 'paxsenixClaude', text: 'Claude 3.5 Sonnet' },
+        { value: 'paxsenixGPT4O', text: 'GPT-4o' },
+        { value: 'geminiRealtime', text: 'Gemini Realtime (Paxsenix)' }
+    ];
+
+    models.forEach(model => {
+        const option = document.createElement('option');
+        option.value = model.value;
+        option.textContent = model.text;
+        modelSelector.appendChild(option);
+    });
+
+    // Add event listener for model selection
+    modelSelector.addEventListener('change', function() {
+        saveSelectedModel(this.value);
+    });
+
+    // Load saved model selection
+    loadSelectedModel();
+}
+
 // Load chat history from localStorage
 function loadChatHistory() {
     try {
@@ -281,7 +313,7 @@ function checkApiKey(model) {
     };
     
     // Paxsenix models don't need API keys
-    if (model.startsWith('paxsenix')) {
+    if (model.startsWith('paxsenix') || model === 'geminiRealtime') {
         return true;
     }
     
@@ -431,6 +463,11 @@ if (modelSelector) {
 const geminiConversationHistory = [];
 const MAX_GEMINI_CONVERSATION_HISTORY = 20;
 
+// Gemini realtime conversation history and session ID
+const geminiRealtimeConversationHistory = [];
+const MAX_GEMINI_REALTIME_CONVERSATION_HISTORY = 10;
+let geminiRealtimeSessionId = '';
+
 // Model-specific API calls
 async function sendMessageToAI(message) {
     const selectedModel = modelSelector.value;
@@ -466,6 +503,9 @@ User question: ${message}` : message;
                 break;
             case 'paxsenixGPT4O':
                 response = await sendMessagePaxsenixGPT4O(messageWithContext, editorContent, chatContext);
+                break;
+            case 'geminiRealtime':
+                response = await sendMessageGeminiRealtime(messageWithContext, editorContent, chatContext);
                 break;
             default:
                 throw new Error(`Model ${selectedModel} is not supported. Please select a different model.`);
@@ -1346,4 +1386,58 @@ function addMarkdownStyles() {
     
     // Add to document
     document.head.appendChild(styleElement);
+}
+
+async function sendMessageGeminiRealtime(userMessage, editorContent, chatContext = []) {
+    try {
+        console.log('Preparing request to Gemini Realtime API...');
+        
+        // Prepare the URL with the message
+        const url = `https://api.paxsenix.biz.id/ai/gemini-realtime?text=${encodeURIComponent(userMessage)}`;
+        
+        // Add session ID if we have one
+        const urlWithSession = geminiRealtimeSessionId ? 
+            `${url}&session_id=${encodeURIComponent(geminiRealtimeSessionId)}` : url;
+
+        const response = await fetch(urlWithSession, {
+            method: 'GET',
+            headers: {
+                'accept': 'application/json'
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`Gemini Realtime API request failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        // Store the session ID for future messages
+        if (data.session_id) {
+            geminiRealtimeSessionId = data.session_id;
+        }
+        
+        // Add to conversation history
+        geminiRealtimeConversationHistory.push({
+            role: 'user',
+            content: userMessage
+        });
+        
+        if (data.message) {
+            geminiRealtimeConversationHistory.push({
+                role: 'assistant',
+                content: data.message
+            });
+        }
+        
+        // Truncate conversation history if it exceeds max length
+        while (geminiRealtimeConversationHistory.length > MAX_GEMINI_REALTIME_CONVERSATION_HISTORY) {
+            geminiRealtimeConversationHistory.shift();
+        }
+
+        return data.message || 'No response from Gemini Realtime';
+    } catch (error) {
+        console.error('Error with Gemini Realtime API:', error);
+        throw error;
+    }
 }

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Storm Chat - AI Assistant</title>
     <link rel="stylesheet" href="styles.css">
     <!-- Google Fonts - Poppins -->
@@ -12,19 +12,38 @@
     <!-- W3 Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
     <style>
+        * {
+            -webkit-text-size-adjust: none;
+            text-size-adjust: none;
+        }
         /* Fullscreen chat specific styles */
         body {
-            overflow: auto;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            position: fixed;
+            width: 100%;
+            height: 100%;
+            overscroll-behavior: none;
+            -webkit-overflow-scrolling: touch;
             background-color: #1e1e1e;
         }
         
         .fullscreen-container {
+            width: 100%;
+            height: 100vh;
+            height: calc(var(--vh, 1vh) * 100);
             display: flex;
             flex-direction: column;
-            height: 100vh;
-            width: 100%;
-            margin: 0 auto;
-            padding: 0;
+            background-color: #1e1e1e;
+            color: #fff;
+            font-family: 'Poppins', sans-serif;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            overflow: hidden;
         }
         
         .fullscreen-header {
@@ -206,6 +225,269 @@
                 height: 44px;
             }
         }
+        
+        .settings-panel {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 350px;
+            height: 100%;
+            background-color: #252526;
+            border-left: 1px solid #333;
+            padding: 20px;
+            z-index: 100;
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+            overflow-y: auto;
+        }
+        
+        .settings-panel.visible {
+            transform: translateX(0);
+        }
+        
+        .settings-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .settings-header h3 {
+            margin: 0;
+        }
+        
+        .setting-item {
+            margin-bottom: 15px;
+        }
+        
+        .setting-item label {
+            display: block;
+            margin-bottom: 8px;
+            color: #ccc;
+            font-size: 14px;
+        }
+        
+        .model-dropdown {
+            width: 100%;
+            padding: 8px 12px;
+            background-color: #3c3c3c;
+            border: 1px solid #555;
+            border-radius: 4px;
+            color: #fff;
+            font-family: 'Poppins', sans-serif;
+            font-size: 14px;
+            cursor: pointer;
+            max-height: 300px;
+        }
+        
+        .model-dropdown optgroup {
+            color: #888;
+            font-style: normal;
+            font-weight: 600;
+            padding: 6px;
+        }
+        
+        .model-dropdown option {
+            padding: 8px;
+            color: #fff;
+            background-color: #3c3c3c;
+        }
+        
+        .model-dropdown option:hover,
+        .model-dropdown option:focus {
+            background-color: #454545;
+        }
+        
+        @supports (-webkit-appearance: none) or (-moz-appearance: none) {
+            .model-dropdown {
+                -webkit-appearance: none;
+                -moz-appearance: none;
+                background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23cccccc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+                background-repeat: no-repeat;
+                background-position: right 8px center;
+                background-size: 16px;
+                padding-right: 32px;
+            }
+            
+            .model-dropdown::-ms-expand {
+                display: none;
+            }
+            
+            .model-dropdown:focus {
+                outline: none;
+                border-color: #0078d4;
+            }
+        }
+        
+        /* For Webkit browsers (Chrome, Safari) */
+        .model-dropdown::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .model-dropdown::-webkit-scrollbar-track {
+            background: #2d2d2d;
+            border-radius: 4px;
+        }
+        
+        .model-dropdown::-webkit-scrollbar-thumb {
+            background: #555;
+            border-radius: 4px;
+        }
+        
+        .model-dropdown::-webkit-scrollbar-thumb:hover {
+            background: #666;
+        }
+        
+        /* For Firefox */
+        .model-dropdown {
+            scrollbar-width: thin;
+            scrollbar-color: #555 #2d2d2d;
+        }
+        
+        .api-keys-container {
+            margin-top: 15px;
+        }
+        
+        .api-key-item {
+            margin-bottom: 15px;
+        }
+        
+        .api-key-input-group {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .api-key-input {
+            flex: 1;
+            padding: 8px 12px;
+            background-color: #3c3c3c;
+            border: 1px solid #555;
+            border-radius: 4px;
+            color: #fff;
+            font-family: 'Poppins', sans-serif;
+            font-size: 14px;
+        }
+        
+        .toggle-visibility-btn {
+            background-color: #3c3c3c;
+            border: 1px solid #555;
+            border-radius: 4px;
+            color: #ccc;
+            cursor: pointer;
+            width: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .toggle-visibility-btn:hover {
+            background-color: #454545;
+            color: #fff;
+        }
+        
+        .save-keys-btn {
+            width: 100%;
+            padding: 8px 12px;
+            background-color: #2ea043;
+            border: none;
+            border-radius: 4px;
+            color: white;
+            font-family: 'Poppins', sans-serif;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 15px;
+        }
+        
+        .save-keys-btn:hover {
+            background-color: #3fb950;
+        }
+        
+        @media (max-width: 768px) {
+            .settings-panel {
+                width: 100%;
+                height: 100vh;
+                position: fixed;
+                top: 0;
+                left: 0;
+                transform: translateX(100%);
+                z-index: 1000;
+            }
+
+            .settings-panel.visible {
+                transform: translateX(0);
+            }
+
+            .chat-input-container {
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                background-color: #252526;
+                padding: 10px;
+                z-index: 100;
+            }
+
+            .chat-messages {
+                padding-bottom: 80px;
+            }
+
+            .model-dropdown {
+                -webkit-appearance: none;
+                -moz-appearance: none;
+                appearance: none;
+                background-position: right 8px center;
+                background-repeat: no-repeat;
+                background-size: 16px;
+                padding-right: 32px;
+            }
+
+            .chat-sidebar {
+                width: 100%;
+                height: 100vh;
+                position: fixed;
+                top: 0;
+                left: 0;
+                z-index: 1000;
+            }
+
+            .fullscreen-header {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                z-index: 99;
+            }
+
+            .chat-main {
+                padding-top: 67px;
+            }
+
+            #chat-input {
+                font-size: 16px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .fullscreen-title {
+                font-size: 0.9rem;
+            }
+
+            .fullscreen-btn {
+                width: 32px;
+                height: 32px;
+            }
+        }
+
+        @supports (-webkit-touch-callout: none) {
+            .chat-input-container {
+                padding-bottom: calc(10px + env(safe-area-inset-bottom));
+            }
+        }
     </style>
 </head>
 <body>
@@ -215,6 +497,9 @@
                 <i class="fas fa-robot"></i> Storm Chat
             </div>
             <div class="fullscreen-actions">
+                <button id="toggle-settings-btn" class="fullscreen-btn" title="Settings">
+                    <i class="fas fa-cog"></i>
+                </button>
                 <button id="toggle-history-btn" class="fullscreen-btn" title="Toggle Chat History">
                     <i class="fas fa-history"></i>
                 </button>
@@ -237,6 +522,67 @@
                 </div>
                 <div id="chat-history-list" class="chat-history-list">
                     <!-- Chat history items will be added here -->
+                </div>
+            </div>
+            
+            <div class="settings-panel">
+                <div class="settings-header">
+                <h3>Settings</h3>
+                    <button id="close-settings-btn" class="fullscreen-btn" title="Close Settings">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="setting-item">
+                    <label>AI Model:</label>
+                    <select id="model-selector" class="model-dropdown">
+                        <option value="gemini">Gemini 2.0 Flash</option>
+                        <optgroup label="OpenRouter Models">
+                            <option value="openrouter/anthropic/claude-3-opus">Claude 3 Opus</option>
+                            <option value="openrouter/anthropic/claude-3-sonnet">Claude 3 Sonnet</option>
+                            <option value="openrouter/anthropic/claude-3-haiku">Claude 3 Haiku</option>
+                            <option value="openrouter/anthropic/claude-2">Claude 2</option>
+                            <option value="openrouter/meta-llama/llama-2-70b-chat">Llama 2 70B</option>
+                            <option value="openrouter/meta-llama/llama-2-13b-chat">Llama 2 13B</option>
+                            <option value="openrouter/mistral/mistral-7b">Mistral 7B</option>
+                            <option value="openrouter/mistral/mixtral-8x7b">Mixtral 8x7B</option>
+                            <option value="openrouter/google/gemini-pro">Gemini Pro</option>
+                            <option value="openrouter/google/palm-2">PaLM 2</option>
+                            <option value="openrouter/meta/llama-2-48b-chat">Llama 2 48B</option>
+                            <option value="openrouter/gryphe/mythomax-l2-13b">MythoMax L2 13B</option>
+                            <option value="openrouter/nousresearch/nous-hermes-2-vision">Nous Hermes 2</option>
+                            <option value="openrouter/perplexity/pplx-70b-online">PPLX 70B Online</option>
+                            <option value="openrouter/perplexity/pplx-7b-online">PPLX 7B Online</option>
+                        </optgroup>
+                        <optgroup label="Paxsenix Models">
+                            <option value="paxsenixClaude">Claude (Paxsenix)</option>
+                            <option value="paxsenixGPT4O">GPT-4 Optimized (Paxsenix)</option>
+                        </optgroup>
+                    </select>
+                </div>
+                
+                <h3>API Keys</h3>
+                <div class="api-keys-container">
+                    <div class="api-key-item">
+                        <label for="gemini-key">Gemini API Key:</label>
+                        <div class="api-key-input-group">
+                            <input type="password" id="gemini-key" class="api-key-input" placeholder="Enter your Gemini API key">
+                            <button class="toggle-visibility-btn" data-for="gemini-key">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="api-key-item">
+                        <label for="openrouter-key">OpenRouter API Key:</label>
+                        <div class="api-key-input-group">
+                            <input type="password" id="openrouter-key" class="api-key-input" placeholder="Enter your OpenRouter API key">
+                            <button class="toggle-visibility-btn" data-for="openrouter-key">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <button id="save-api-keys" class="save-keys-btn">
+                        <i class="fas fa-save"></i> Save API Keys
+                    </button>
                 </div>
             </div>
             

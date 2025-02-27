@@ -102,39 +102,143 @@ function setupEventListeners() {
     
     // Handle mobile touch events for better mobile experience
     setupMobileEvents();
+    
+    // Model selector change event
+    const modelSelector = document.getElementById('model-selector');
+    if (modelSelector) {
+        modelSelector.addEventListener('change', () => {
+            saveSelectedModel();
+            clearConversationHistories();
+        });
+    }
+    
+    // Save API keys button
+    const saveApiKeysBtn = document.getElementById('save-api-keys');
+    if (saveApiKeysBtn) {
+        saveApiKeysBtn.addEventListener('click', saveApiKeys);
+    }
+    
+    // Password visibility toggle buttons
+    const toggleVisibilityBtns = document.querySelectorAll('.toggle-visibility-btn');
+    toggleVisibilityBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const inputId = btn.getAttribute('data-for');
+            const input = document.getElementById(inputId);
+            if (input) {
+                if (input.type === 'password') {
+                    input.type = 'text';
+                    btn.querySelector('i').className = 'fas fa-eye-slash';
+                } else {
+                    input.type = 'password';
+                    btn.querySelector('i').className = 'fas fa-eye';
+                }
+            }
+        });
+    });
+    
+    // Toggle settings panel
+    const toggleSettingsBtn = document.getElementById('toggle-settings-btn');
+    const closeSettingsBtn = document.getElementById('close-settings-btn');
+    const settingsPanel = document.querySelector('.settings-panel');
+    
+    if (toggleSettingsBtn && settingsPanel) {
+        toggleSettingsBtn.addEventListener('click', () => {
+            settingsPanel.classList.toggle('visible');
+        });
+    }
+    
+    if (closeSettingsBtn && settingsPanel) {
+        closeSettingsBtn.addEventListener('click', () => {
+            settingsPanel.classList.remove('visible');
+        });
+    }
+    
+    // Close settings panel when clicking outside
+    document.addEventListener('click', (e) => {
+        if (settingsPanel && settingsPanel.classList.contains('visible')) {
+            if (!settingsPanel.contains(e.target) && !toggleSettingsBtn.contains(e.target)) {
+                settingsPanel.classList.remove('visible');
+            }
+        }
+    });
 }
 
 // Setup mobile-specific events
 function setupMobileEvents() {
-    // Add touch event handling for mobile swipe to show/hide sidebar
     let touchStartX = 0;
+    let touchStartY = 0;
     let touchEndX = 0;
+    let touchEndY = 0;
     
     document.addEventListener('touchstart', (e) => {
-        touchStartX = e.changedTouches[0].screenX;
-    }, false);
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+    }, { passive: true });
     
     document.addEventListener('touchend', (e) => {
-        touchEndX = e.changedTouches[0].screenX;
+        touchEndX = e.changedTouches[0].clientX;
+        touchEndY = e.changedTouches[0].clientY;
         handleSwipe();
-    }, false);
+    }, { passive: true });
     
     function handleSwipe() {
-        const swipeThreshold = 100;
-        if (touchEndX - touchStartX > swipeThreshold) {
-            // Swipe right - show sidebar
-            chatSidebar.classList.add('visible');
-        } else if (touchStartX - touchEndX > swipeThreshold) {
-            // Swipe left - hide sidebar
-            chatSidebar.classList.remove('visible');
+        const swipeThreshold = 50;
+        const verticalThreshold = 30;
+        const verticalDiff = Math.abs(touchEndY - touchStartY);
+        
+        if (verticalDiff < verticalThreshold) {
+            if (touchEndX - touchStartX > swipeThreshold) {
+                chatSidebar.classList.add('visible');
+            } else if (touchStartX - touchEndX > swipeThreshold) {
+                chatSidebar.classList.remove('visible');
+                document.querySelector('.settings-panel').classList.remove('visible');
+            }
         }
     }
     
-    // Adjust textarea height on mobile
+    // Prevent zoom on double tap
+    let lastTouchEnd = 0;
+    document.addEventListener('touchend', (e) => {
+        const now = Date.now();
+        if (now - lastTouchEnd <= 300) {
+            e.preventDefault();
+        }
+        lastTouchEnd = now;
+    }, false);
+    
+    // Prevent zoom on input focus
+    chatInput.addEventListener('focus', () => {
+        document.documentElement.style.touchAction = 'none';
+        if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
+            window.scrollTo(0, 0);
+        }
+    });
+    
+    chatInput.addEventListener('blur', () => {
+        document.documentElement.style.touchAction = '';
+    });
+    
+    // Dynamic textarea height
     chatInput.addEventListener('input', () => {
         chatInput.style.height = 'auto';
-        chatInput.style.height = (chatInput.scrollHeight) + 'px';
+        const newHeight = Math.min(chatInput.scrollHeight, 150);
+        chatInput.style.height = newHeight + 'px';
+        
+        // Adjust messages container padding
+        const messagesContainer = document.querySelector('.chat-messages');
+        if (messagesContainer) {
+            messagesContainer.style.paddingBottom = (newHeight + 90) + 'px';
+        }
     });
+    
+    // Fix viewport height for mobile browsers
+    function setVhProperty() {
+        let vh = window.innerHeight * 0.01;
+        document.documentElement.style.setProperty('--vh', `${vh}px`);
+    }
+    
+    setVhProperty();
+    window.addEventListener('resize', setVhProperty);
 }
 
 // Load chat history from localStorage
@@ -386,23 +490,19 @@ function addMessageToCurrentChat(content, sender) {
 
 // Check if API key is available for the selected model
 function checkApiKey(model) {
-    const keyMapping = {
-        'gemini': 'gemini',
-        'openrouter': 'openrouter'
+    if (model === 'gemini') {
+        if (!apiKeys.gemini || apiKeys.gemini.trim() === '') {
+            appendMessage('Please set your Gemini API key in the settings panel.', 'system');
+            return false;
+        }
+    } else if (model.startsWith('openrouter/')) {
+        if (!apiKeys.openrouter || apiKeys.openrouter.trim() === '') {
+            appendMessage('Please set your OpenRouter API key in the settings panel.', 'system');
+            return false;
+        }
+    } else if (model.startsWith('paxsenix')) {
         // Paxsenix models don't need API keys
-    };
-    
-    // If this is a Paxsenix model, no API key is needed
-    if (['claude', 'gpt4o', 'phi3'].includes(model)) {
         return true;
-    }
-    
-    const keyName = keyMapping[model];
-    if (!keyName) return true; // No API key needed for this model
-    
-    if (!apiKeys[keyName] || apiKeys[keyName].trim() === '') {
-        alert(`Please set your ${keyName.toUpperCase()} API key before using this model.`);
-        return false;
     }
     
     return true;
@@ -416,11 +516,24 @@ function clearConversationHistories() {
     paxsenixGPT4OConversationHistory.length = 0;
 }
 
+// Save selected model to localStorage
+function saveSelectedModel() {
+    try {
+        const modelSelector = document.getElementById('model-selector');
+        localStorage.setItem('stormEditorSelectedModel', modelSelector.value);
+    } catch (error) {
+        console.error('Error saving selected model:', error);
+    }
+}
+
 // Load selected model from localStorage
 function loadSelectedModel() {
     try {
-        // Initialize conversation histories with system messages
-        initializeConversationHistory();
+        const modelSelector = document.getElementById('model-selector');
+        const savedModel = localStorage.getItem('stormEditorSelectedModel');
+        if (savedModel && modelSelector.querySelector(`option[value="${savedModel}"]`)) {
+            modelSelector.value = savedModel;
+        }
     } catch (error) {
         console.error('Error loading selected model:', error);
     }
@@ -433,16 +546,14 @@ function loadApiKeys() {
         const openrouterKey = localStorage.getItem('apiKey_openrouter');
         
         if (geminiKey) {
+            document.getElementById('gemini-key').value = geminiKey;
             apiKeys.gemini = geminiKey;
         }
         
         if (openrouterKey) {
+            document.getElementById('openrouter-key').value = openrouterKey;
             apiKeys.openrouter = openrouterKey;
         }
-        
-        // Paxsenix models don't need API keys
-        localStorage.removeItem('apiKey_paxsenix');
-        apiKeys.paxsenix = '';
     } catch (error) {
         console.error('Error loading API keys:', error);
     }
@@ -451,24 +562,23 @@ function loadApiKeys() {
 // Save API keys to localStorage
 function saveApiKeys() {
     try {
-        // No UI elements to save from, just use existing values
-        if (apiKeys.gemini) {
-            localStorage.setItem('apiKey_gemini', apiKeys.gemini);
-        } else {
-            localStorage.removeItem('apiKey_gemini');
+        const geminiKey = document.getElementById('gemini-key').value;
+        const openrouterKey = document.getElementById('openrouter-key').value;
+        
+        if (geminiKey) {
+            localStorage.setItem('apiKey_gemini', geminiKey);
+            apiKeys.gemini = geminiKey;
         }
         
-        if (apiKeys.openrouter) {
-            localStorage.setItem('apiKey_openrouter', apiKeys.openrouter);
-        } else {
-            localStorage.removeItem('apiKey_openrouter');
+        if (openrouterKey) {
+            localStorage.setItem('apiKey_openrouter', openrouterKey);
+            apiKeys.openrouter = openrouterKey;
         }
         
-        // Paxsenix models don't need API keys
-        localStorage.removeItem('apiKey_paxsenix');
-        apiKeys.paxsenix = '';
+        alert('API keys saved successfully!');
     } catch (error) {
         console.error('Error saving API keys:', error);
+        alert('Error saving API keys. Please try again.');
     }
 }
 
@@ -491,8 +601,9 @@ async function sendMessage() {
     showThinking();
     
     try {
-        // Use default model
-        const selectedModel = DEFAULT_MODEL;
+        // Get selected model
+        const modelSelector = document.getElementById('model-selector');
+        const selectedModel = modelSelector.value;
         
         // Check if API key is available
         if (!checkApiKey(selectedModel)) {
@@ -502,24 +613,16 @@ async function sendMessage() {
         
         let response;
         
-        switch (selectedModel) {
-            case 'gemini':
-                response = await sendMessageToGemini(message);
-                break;
-            case 'openrouter':
-                response = await sendMessageToOpenRouter(message);
-                break;
-            case 'claude':
-                response = await sendMessageToPaxsenixClaude(message);
-                break;
-            case 'gpt4o':
-                response = await sendMessageToPaxsenixGPT4O(message);
-                break;
-            case 'phi3':
-                response = await sendMessageToPaxsenixPhi(message);
-                break;
-            default:
-                response = "Model not supported. Please select a different model.";
+        if (selectedModel === 'gemini') {
+            response = await sendMessageToGemini(message);
+        } else if (selectedModel.startsWith('openrouter/')) {
+            response = await sendMessageToOpenRouter(message, selectedModel);
+        } else if (selectedModel === 'paxsenixClaude') {
+            response = await sendMessageToPaxsenixClaude(message);
+        } else if (selectedModel === 'paxsenixGPT4O') {
+            response = await sendMessageToPaxsenixGPT4O(message);
+        } else {
+            response = "Model not supported. Please select a different model.";
         }
         
         // Remove thinking indicator
@@ -607,7 +710,7 @@ async function sendMessageToGemini(message) {
 }
 
 // Send message to OpenRouter API
-async function sendMessageToOpenRouter(message) {
+async function sendMessageToOpenRouter(message, modelId) {
     try {
         // Initialize conversation history if needed
         if (!openRouterConversationHistory.length) {
@@ -636,9 +739,6 @@ async function sendMessageToOpenRouter(message) {
             openRouterConversationHistory.shift();
         }
         
-        // Use default OpenRouter model
-        const selectedModel = 'meta-llama/llama-3-8b-instruct';
-        
         // Prepare headers
         const headers = {
             'Content-Type': 'application/json',
@@ -649,7 +749,7 @@ async function sendMessageToOpenRouter(message) {
         
         // Prepare request body
         const requestBody = {
-            model: selectedModel,
+            model: modelId,
             messages: openRouterConversationHistory,
             temperature: 0.7,
             max_tokens: 2048
@@ -830,50 +930,6 @@ async function sendMessageToPaxsenixGPT4O(message) {
         }
     } catch (error) {
         console.error('Paxsenix GPT-4o API error:', error);
-        throw error;
-    }
-}
-
-// Send message to Paxsenix Phi-3 API
-async function sendMessageToPaxsenixPhi(message) {
-    try {
-        // Prepare headers
-        const headers = {
-            'Content-Type': 'application/json'
-            // No API key needed for Paxsenix models
-        };
-        
-        // Prepare request body
-        const requestBody = {
-            message: message
-        };
-        
-        console.log('Paxsenix Phi request:', JSON.stringify(requestBody, null, 2));
-        
-        // Send request to Paxsenix API
-        const response = await fetch('https://api.paxsenix.biz.id/ai/phi?full=true', {
-            method: 'POST',
-            headers: headers,
-            body: JSON.stringify(requestBody)
-        });
-        
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Paxsenix Phi API error response:', errorText);
-            throw new Error(`Paxsenix Phi API error: ${response.status} ${response.statusText}`);
-        }
-        
-        const responseData = await response.json();
-        console.log('Paxsenix Phi response:', JSON.stringify(responseData, null, 2));
-        
-        if (responseData.message) {
-            return responseData.message;
-        } else {
-            console.error('Invalid Paxsenix Phi response structure:', responseData);
-            throw new Error('Invalid response structure from Paxsenix Phi API');
-        }
-    } catch (error) {
-        console.error('Paxsenix Phi API error:', error);
         throw error;
     }
 }
